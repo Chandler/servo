@@ -150,6 +150,7 @@ pub enum SpecificFragmentInfo {
     InlineAbsoluteHypothetical(InlineAbsoluteHypotheticalFragmentInfo),
 
     InlineBlock(InlineBlockFragmentInfo),
+    InlineTable(InlineTableFragmentInfo),
 
     /// An inline fragment that establishes an absolute containing block for its descendants (i.e.
     /// a positioned inline fragment).
@@ -183,6 +184,7 @@ impl SpecificFragmentInfo {
                 SpecificFragmentInfo::InlineAbsoluteHypothetical(ref info) => &info.flow_ref,
                 SpecificFragmentInfo::InlineAbsolute(ref info) => &info.flow_ref,
                 SpecificFragmentInfo::InlineBlock(ref info) => &info.flow_ref,
+                SpecificFragmentInfo::InlineTable(ref info) => &info.flow_ref,
             };
 
         flow::base(&**flow).restyle_damage
@@ -200,6 +202,7 @@ impl SpecificFragmentInfo {
                 "SpecificFragmentInfo::InlineAbsoluteHypothetical"
             }
             SpecificFragmentInfo::InlineBlock(_) => "SpecificFragmentInfo::InlineBlock",
+            SpecificFragmentInfo::InlineTable(_) => "SpecificFragmentInfo::InlineTable",
             SpecificFragmentInfo::ScannedText(_) => "SpecificFragmentInfo::ScannedText",
             SpecificFragmentInfo::Table => "SpecificFragmentInfo::Table",
             SpecificFragmentInfo::TableCell => "SpecificFragmentInfo::TableCell",
@@ -278,6 +281,23 @@ pub struct InlineBlockFragmentInfo {
 impl InlineBlockFragmentInfo {
     pub fn new(flow_ref: FlowRef) -> InlineBlockFragmentInfo {
         InlineBlockFragmentInfo {
+            flow_ref: flow_ref,
+        }
+    }
+}
+
+/// A fragment that represents an inline-block element.
+///
+/// FIXME(pcwalton): Stop leaking this `FlowRef` to layout; that is not memory safe because layout
+/// can clone it.
+#[derive(Clone)]
+pub struct InlineTableFragmentInfo {
+    pub flow_ref: FlowRef,
+}
+
+impl InlineTableFragmentInfo {
+    pub fn new(flow_ref: FlowRef) -> InlineTableFragmentInfo {
+        InlineTableFragmentInfo {
             flow_ref: flow_ref,
         }
     }
@@ -948,7 +968,8 @@ impl Fragment {
             SpecificFragmentInfo::TableColumn(_) |
             SpecificFragmentInfo::UnscannedText(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) |
-            SpecificFragmentInfo::InlineBlock(_) => {
+            SpecificFragmentInfo::InlineBlock(_) |
+            SpecificFragmentInfo::InlineTable(_) => {
                 QuantitiesIncludedInIntrinsicInlineSizes::empty()
             }
         }
@@ -1308,6 +1329,7 @@ impl Fragment {
             SpecificFragmentInfo::TableColumn(_) |
             SpecificFragmentInfo::TableRow |
             SpecificFragmentInfo::TableWrapper |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) => {}
             SpecificFragmentInfo::InlineBlock(ref info) => {
                 let block_flow = info.flow_ref.as_block();
@@ -1410,6 +1432,7 @@ impl Fragment {
             SpecificFragmentInfo::TableRow |
             SpecificFragmentInfo::TableWrapper |
             SpecificFragmentInfo::InlineBlock(_) |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) |
             SpecificFragmentInfo::InlineAbsolute(_) => Au(0),
             SpecificFragmentInfo::Canvas(ref canvas_fragment_info) => {
@@ -1678,6 +1701,7 @@ impl Fragment {
             SpecificFragmentInfo::Image(_) |
             SpecificFragmentInfo::Iframe(_) |
             SpecificFragmentInfo::InlineBlock(_) |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) |
             SpecificFragmentInfo::InlineAbsolute(_) |
             SpecificFragmentInfo::ScannedText(_) => {}
@@ -1702,6 +1726,14 @@ impl Fragment {
                         block_flow.base.intrinsic_inline_sizes.preferred_inline_size);
                 block_flow.base.block_container_inline_size = self.border_box.size.inline;
                 block_flow.base.block_container_writing_mode = self.style.writing_mode;
+            }
+            SpecificFragmentInfo::InlineTable(ref mut info) => {
+                let wrapper_flow = flow_ref::deref_mut(&mut info.flow_ref).as_mut_table_wrapper();
+                self.border_box.size.inline =
+                    max(wrapper_flow.block_flow.base.intrinsic_inline_sizes.minimum_inline_size,
+                        wrapper_flow.block_flow.base.intrinsic_inline_sizes.preferred_inline_size);
+                wrapper_flow.block_flow.base.block_container_inline_size = self.border_box.size.inline;
+                wrapper_flow.block_flow.base.block_container_writing_mode = self.style.writing_mode;
             }
             SpecificFragmentInfo::InlineAbsolute(ref mut info) => {
                 let block_flow = flow_ref::deref_mut(&mut info.flow_ref).as_mut_block();
@@ -1770,6 +1802,7 @@ impl Fragment {
             SpecificFragmentInfo::Iframe(_) |
             SpecificFragmentInfo::Image(_) |
             SpecificFragmentInfo::InlineBlock(_) |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) |
             SpecificFragmentInfo::InlineAbsolute(_) |
             SpecificFragmentInfo::ScannedText(_) => {}
@@ -1811,6 +1844,11 @@ impl Fragment {
                 let block_flow = flow_ref::deref_mut(&mut info.flow_ref).as_block();
                 self.border_box.size.block = block_flow.base.position.size.block +
                     block_flow.fragment.margin.block_start_end()
+            }
+            SpecificFragmentInfo::InlineTable(ref mut info) => {
+                let wrapper_flow = flow_ref::deref_mut(&mut info.flow_ref).as_table_wrapper();
+                self.border_box.size.block = wrapper_flow.block_flow.base.position.size.block +
+                    wrapper_flow.block_flow.fragment.margin.block_start_end()
             }
             SpecificFragmentInfo::InlineAbsoluteHypothetical(ref mut info) => {
                 // Not the primary fragment, so we do not take the noncontent size into account.
@@ -1983,6 +2021,7 @@ impl Fragment {
             SpecificFragmentInfo::GeneratedContent(_) |
             SpecificFragmentInfo::Iframe(_) |
             SpecificFragmentInfo::Image(_) |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::ScannedText(_) |
             SpecificFragmentInfo::Table |
             SpecificFragmentInfo::TableCell |
