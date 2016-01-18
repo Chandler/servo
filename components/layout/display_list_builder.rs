@@ -1083,6 +1083,7 @@ impl FragmentDisplayListBuilding for Fragment {
             SpecificFragmentInfo::TableRow |
             SpecificFragmentInfo::TableWrapper |
             SpecificFragmentInfo::InlineBlock(_) |
+            SpecificFragmentInfo::InlineTable(_) |
             SpecificFragmentInfo::InlineAbsoluteHypothetical(_) |
             SpecificFragmentInfo::InlineAbsolute(_) => {
                 if opts::get().show_debug_fragment_borders {
